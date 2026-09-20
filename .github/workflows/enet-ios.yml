@@ -1,0 +1,108 @@
+name: eNet iOS
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+
+jobs:
+  build:
+    runs-on: macos-26
+    timeout-minutes: 120
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          submodules: recursive
+          fetch-depth: 0
+
+      - name: Select Xcode
+        shell: bash
+        run: |
+          set -e
+          XCODE_VERSION="$(python3 -c 'import json; print(json.load(open("versions.json"))["xcode"])')"
+          echo "Required Xcode: $XCODE_VERSION"
+          sudo xcode-select -s "/Applications/Xcode_${XCODE_VERSION}.app/Contents/Developer"
+          xcodebuild -version
+
+      - name: Verify eNet MTProto patch
+        shell: bash
+        run: |
+          set -e
+
+          grep -A4 'currentLayer()' \
+            submodules/TelegramCore/Sources/State/Serialization.swift
+
+          grep -A8 'seedAddressList' \
+            submodules/TelegramCore/Sources/Network/Network.swift
+
+          grep -q '2: \["195.208.21.151"\]' \
+            submodules/TelegramCore/Sources/Network/Network.swift
+
+          grep -q 'port: 2398' \
+            submodules/TelegramCore/Sources/Network/Network.swift
+
+          echo "eNet MTProto target verified: 195.208.21.151:2398"
+
+      - name: Create canonical source directory
+        shell: bash
+        run: |
+          set -e
+
+          sudo mkdir -p /Users/Shared
+          sudo rm -rf /Users/Shared/telegram-ios
+          cp -R "$GITHUB_WORKSPACE" /Users/Shared/telegram-ios
+
+      - name: Build unsigned IPA
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          SOURCE_DIR=/Users/Shared/telegram-ios
+          BAZEL_USER_ROOT=/private/var/tmp/_bazel_enet
+
+          cd "$SOURCE_DIR"
+
+          BUILD_NUMBER_OFFSET="$(cat build_number_offset)"
+          COMMIT_COUNT="$(git rev-list --count HEAD)"
+          BUILD_NUMBER="$((COMMIT_COUNT + BUILD_NUMBER_OFFSET))"
+
+          echo "Build number: $BUILD_NUMBER"
+
+          python3 build-system/Make/ImportCertificates.py \
+            --path build-system/fake-codesigning/certs
+
+          python3 -u build-system/Make/Make.py \
+            --bazelUserRoot="$BAZEL_USER_ROOT" \
+            build \
+            --configurationPath="build-system/appstore-configuration.json" \
+            --codesigningInformationPath=build-system/fake-codesigning \
+            --configuration=release_arm64 \
+            --buildNumber="$BUILD_NUMBER"
+
+          mkdir -p build/artifacts
+
+          IPA="$(find bazel-out \
+            -path '*/Telegram/Telegram.ipa' \
+            -type f \
+            -print \
+            -quit)"
+
+          if [ -z "$IPA" ]; then
+            echo "ERROR: Telegram.ipa not found"
+            exit 1
+          fi
+
+          cp "$IPA" build/artifacts/eNet-gramsrv.ipa
+
+          ls -lh build/artifacts/eNet-gramsrv.ipa
+
+      - name: Upload IPA
+        uses: actions/upload-artifact@v4
+        with:
+          name: eNet-gramsrv-unsigned
+          path: /Users/Shared/telegram-ios/build/artifacts/eNet-gramsrv.ipa
+          if-no-files-found: error
+          retention-days: 7
