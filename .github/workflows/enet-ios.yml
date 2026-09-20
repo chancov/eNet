@@ -35,16 +35,19 @@ jobs:
           grep -A4 'currentLayer()' \
             submodules/TelegramCore/Sources/State/Serialization.swift
 
+          grep -Eq 'return[[:space:]]+227' \
+            submodules/TelegramCore/Sources/State/Serialization.swift
+
           grep -A8 'seedAddressList' \
             submodules/TelegramCore/Sources/Network/Network.swift
 
-          grep -q '2: \["195.208.21.151"\]' \
+          grep -q '2: \["109.172.7.153"\]' \
             submodules/TelegramCore/Sources/Network/Network.swift
 
           grep -q 'port: 2398' \
             submodules/TelegramCore/Sources/Network/Network.swift
 
-          echo "eNet MTProto target verified: 195.208.21.151:2398"
+          echo "eNet MTProto target verified: 109.172.7.153:2398"
 
       - name: Create canonical source directory
         shell: bash
